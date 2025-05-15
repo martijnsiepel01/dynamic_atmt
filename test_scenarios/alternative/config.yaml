@@ -1,0 +1,54 @@
+data_sources:
+  prescriptions:
+    enabled: true
+    file_path: "data/raw/prescriptions.csv"
+    columns:
+      patient_id: "mrn"
+      patient_contact_id: "encounter_id"
+      start_datetime: "medication_start"
+      stop_datetime: "medication_stop"
+      prescription_datetime: "order_timestamp"
+      medication_name: "generic_name"
+      administration_route: "admin_route"
+      specialty: "ordering_dept"
+
+  order_specifications:
+    enabled: true
+    file_path: "data/raw/orders.csv"
+    columns:
+      patient_id: "mrn"
+      patient_contact_id: "encounter_id"
+      order_id: "order_number"
+      question_id: "question_code"
+      answer: "response_text"
+
+  cultures:
+    enabled: true
+    file_path: "data/raw/microbiology.csv"
+    columns:
+      patient_id: "mrn"
+      sample_datetime: "specimen_datetime"
+      material_category: "source"
+      culture_result: "culture_finding"
+
+  admissions:
+    enabled: true
+    file_path: "data/raw/encounters.csv"
+    columns:
+      patient_id: "mrn"
+      patient_contact_id: "encounter_id"
+      admission_start: "admit_date"
+      admission_end: "discharge_date"
+
+analysis_options:
+  culture_time_windows:
+    default:
+      hours_before: 72
+      hours_after: 24
+    intra_abdominal:
+      hours_before: 72
+      hours_after: 48
+
+output:
+  format: "json"
+  file_path: "data/processed/alternative/output.json" 

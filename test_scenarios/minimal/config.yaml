@@ -1,0 +1,45 @@
+data_sources:
+  prescriptions:
+    enabled: true
+    file_path: "data/raw/prescriptions.csv"
+    columns:
+      patient_id: "patient_number"
+      patient_contact_id: "visit_id"
+      start_datetime: "start_date"
+      stop_datetime: "end_date"
+      prescription_datetime: "order_date"
+      medication_name: "drug_name"
+      administration_route: "route"
+      specialty: "department"
+
+  order_specifications:
+    enabled: false
+    file_path: ""
+    columns: {}
+
+  cultures:
+    enabled: true
+    file_path: "data/raw/cultures.csv"
+    columns:
+      patient_id: "patient_number"
+      sample_datetime: "collection_time"
+      material_category: "specimen_type"
+      culture_result: "result"
+
+  admissions:
+    enabled: false
+    file_path: ""
+    columns: {}
+
+analysis_options:
+  culture_time_windows:
+    default:
+      hours_before: 48  # Different time window than original
+      hours_after: 24
+    intra_abdominal:
+      hours_before: 48
+      hours_after: 48
+
+output:
+  format: "json"
+  file_path: "data/processed/minimal/output.json" 

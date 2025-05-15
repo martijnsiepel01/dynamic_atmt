@@ -1,0 +1,66 @@
+data_sources:
+  prescriptions:
+    enabled: true
+    file_path: "data/raw/mmi_MedicatieVoorschrift.csv"
+    columns:
+      patient_id: "Pseudo_id"
+      patient_contact_id: "PatientContactId"
+      start_datetime: "StartDatumTijd"
+      stop_datetime: "StopDatumTijd"
+      prescription_datetime: "VoorschrijfDatumTijd"
+      medication_name: "MedicatieStofnaam"
+      administration_route: "ToedieningsRoute"
+      specialty: "SpecialismeOmschrijving"
+      order_id: "VoorschriftId"
+      medication_article_code: "MedicatieArtikelCode"
+      atc_code: "ATCCode"
+
+  atc_mapping:
+    enabled: true
+    file_path: "data/raw/20220118 Antibiotics_ATC_DDD_AmsterdamUMC.xlsx"
+    sheet_name: "MAC J01"
+    columns:
+      medication_article_code: "MedicatieArtikelCode"
+      atc_code: "ATCCode"
+      atc_fallback: "ATC_vertaaltabel"
+
+  order_specifications:
+    enabled: true
+    file_path: "data/raw/OrderSpecificatievraagAntwoord.csv"
+    columns:
+      patient_id: "Pseudo_id"
+      patient_contact_id: "PatientContactId"
+      order_id: "OrderId"
+      question_id: "OrderSpecificatievraagFormulering"
+      answer: "OrderSpecificatievraagAntwoord"
+
+  cultures:
+    enabled: true
+    file_path: "data/raw/kweken.csv"
+    columns:
+      patient_id: "patientID_pseudo"
+      sample_datetime: "afnamedatumtijd"
+      material_category: "materiaal_catCustom"
+      culture_result: "kweek_uitslagDef"
+
+  admissions:
+    enabled: true
+    file_path: "data/raw/mmi_OpnameDeeltraject.csv"
+    columns:
+      patient_id: "Pseudo_id"
+      patient_contact_id: "PatientContactId"
+      admission_start: "OpnametrajectOpnameDatumTijd"
+      admission_end: "OpnametrajectOntslagDatumTijd"
+
+analysis_options:
+  culture_time_windows:
+    default:
+      hours_before: 72
+      hours_after: 24
+    intra_abdominal:
+      hours_before: 72
+      hours_after: 48
+
+output:
+  format: "json"
+  file_path: "data/processed/grouped_treatments_and_cultures.json" 
