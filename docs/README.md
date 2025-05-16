@@ -1,222 +1,257 @@
-# Prescription and Culture Data Processing Pipeline
+# Prescription and Culture Data Processing Pipeline – Technical Reference
 
-This pipeline processes prescription and culture data from various healthcare data sources, combining them into a structured JSON output that links prescriptions with relevant cultures based on configurable time windows. The pipeline is designed to be flexible, allowing users to adapt it to different data sources and column names through configuration.
+This pipeline processes antimicrobial prescription and microbiology culture data from hospital systems. It combines multiple data sources into a structured JSON format per patient, linking treatments with relevant cultures using configurable time windows.
+
+The pipeline is modular, configuration-driven, and supports flexible column mappings and optional data sources.
+
+---
 
 ## Table of Contents
-1. [Overview](#overview)
-2. [Project Structure](#project-structure)
-3. [Installation](#installation)
-4. [Configuration](#configuration)
-5. [Data Sources](#data-sources)
-6. [Core Functionality](#core-functionality)
-7. [Running the Pipeline](#running-the-pipeline)
-8. [Test Scenarios](#test-scenarios)
-9. [Output Format](#output-format)
-10. [Customization](#customization)
+
+1. [Overview](#overview)  
+2. [Project Structure](#project-structure)  
+3. [Installation](#installation)  
+4. [Configuration](#configuration)  
+5. [Data Sources](#data-sources)  
+6. [Processing Steps](#processing-steps)  
+7. [Running the Pipeline](#running-the-pipeline)  
+8. [Test Scenarios](#test-scenarios)  
+9. [Output Format](#output-format)  
+10. [Customization](#customization)  
+11. [Error Handling](#error-handling)  
+12. [Best Practices](#best-practices)  
+13. [Limitations](#limitations)
+
+---
 
 ## Overview
 
-The pipeline takes several input data sources:
-- Prescription data (required)
-- Culture data (required)
-- Admission data (optional)
-- Order specifications (optional)
+The pipeline ingests the following input data:
 
-It processes these inputs to:
-1. Group prescriptions into treatments based on temporal proximity
-2. Match relevant cultures to prescriptions based on configurable time windows
-3. Link treatments to hospital admissions when available
-4. Generate a structured JSON output
+- **Prescriptions** (required)
+- **Cultures** (required)
+- **Admissions** (optional)
+- **Order specifications** (optional)
+
+It then:
+1. Groups prescriptions into treatments (within 24h of each other)
+2. Matches relevant cultures using time windows
+3. Links treatments to admissions if available
+4. Outputs structured JSON grouped by patient
+
+---
 
 ## Project Structure
 
 ```
-project/
-├── config.yaml              # Main configuration file
-├── main.py                 # Entry point script
-├── config_loader.py        # Configuration loading and validation
-├── data_processor.py       # Core data processing logic
-├── test_scenarios/         # Test data and configurations
-│   ├── minimal/           # Minimal scenario (prescriptions + cultures only)
-│   ├── alternative/       # Alternative column names scenario
-│   └── extended/         # Extended scenario with additional fields
-└── README.md              # This documentation
+martijnsiepel01-dynamic_atmt/
+├── data/
+│   ├── raw/                 # Scenario input data (CSV)
+│   ├── processed/           # Generated JSON outputs
+│   └── generate_test_data.py
+├── src/
+│   ├── config.yaml          # Default configuration
+│   ├── main.py              # Entry point
+│   └── core/
+│       ├── config_loader.py
+│       └── data_processor.py
+├── test_scenarios/
+│   ├── minimal/
+│   ├── alternative/
+│   ├── extended/
+│   └── test_scenarios.md
+└── docs/
+    └── reference.md         # ← This file
 ```
+
+---
 
 ## Installation
 
 1. Requirements:
-   ```
-   pandas>=1.5.0
-   pyyaml>=6.0.0
-   numpy>=1.24.0
-   ```
+   - Python 3.9+
+   - pandas ≥ 1.5.0
+   - pyyaml ≥ 6.0.0
+   - numpy < 2.0.0
 
 2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
+
+```bash
+pip install -r requirements.txt
+```
+
+---
 
 ## Configuration
 
-The pipeline uses YAML configuration files to define:
-- Data source locations and column mappings
-- Analysis options
-- Output settings
+All settings are controlled via a YAML file. Each scenario has its own config in `test_scenarios/{scenario}/config.yaml`.
 
-Example configuration:
+### Structure
+
 ```yaml
 data_sources:
   prescriptions:
     enabled: true
-    file_path: "data/prescriptions.csv"
+    file_path: "data/raw/extended/mmi_MedicatieVoorschrift.csv"
     columns:
-      patient_id: "mrn"
-      start_datetime: "medication_start"
-      # ... other column mappings
+      required:
+        patient_id: "Pseudo_id"
+        ...
+      optional:
+        specialty: "SpecialismeOmschrijving"
+        ...
+```
 
+Each source has:
+- `enabled`: whether to load it
+- `file_path`: path to CSV file
+- `columns.required`: must map all internal required fields
+- `columns.optional`: any extra fields to pass through
+
+### Time Window Settings
+
+```yaml
 analysis_options:
   culture_time_windows:
     default:
       hours_before: 72
       hours_after: 24
-    # ... other time windows
-
-output:
-  format: "json"
-  file_path: "output.json"
+    intra_abdominal:
+      hours_before: 72
+      hours_after: 48
 ```
 
-### Column Mapping
+---
 
-The configuration allows mapping between your data's column names and the pipeline's internal names. Required mappings for each data source:
+## Data Sources
 
-#### Prescriptions (Required)
-- patient_id: Patient identifier
-- patient_contact_id: Admission/encounter identifier
-- start_datetime: When the prescription starts
-- stop_datetime: When the prescription ends
-- prescription_datetime: When the prescription was ordered
-- medication_name: Name of the medication
-- administration_route: How the medication is administered
-- specialty: Prescribing specialty
+### Required
 
-#### Cultures (Required)
-- patient_id: Patient identifier
-- sample_datetime: When the culture was collected
-- material_category: Type of culture specimen
-- culture_result: Result of the culture
+#### Prescriptions
+| Internal Name         | Description                          |
+|-----------------------|--------------------------------------|
+| patient_id            | Unique patient identifier            |
+| patient_contact_id    | Hospital contact/admission ID        |
+| start_datetime        | When prescription starts             |
+| stop_datetime         | When prescription ends               |
+| prescription_datetime | When it was ordered                  |
+| medication_name       | Generic name of the antibiotic       |
 
-#### Admissions (Optional)
-- patient_id: Patient identifier
-- patient_contact_id: Admission/encounter identifier
-- admission_start: Start of admission
-- admission_end: End of admission
+#### Cultures
+| Internal Name      | Description                           |
+|--------------------|---------------------------------------|
+| patient_id         | Unique patient identifier             |
+| sample_datetime    | Timestamp of culture collection       |
+| material_category  | Type/category of sample (e.g., blood) |
 
-## Core Functionality
+### Optional
 
-### 1. Data Loading (`data_processor.py`)
-- Loads CSV files based on configuration
-- Applies column mappings
-- Converts datetime fields
-- Handles missing or disabled data sources
+#### Admissions
+| Internal Name      | Description                    |
+|--------------------|--------------------------------|
+| admission_start    | Timestamp of admission start   |
+| admission_end      | Timestamp of discharge         |
 
-### 2. Treatment Grouping
-The pipeline groups prescriptions into treatments based on:
-- Same patient and admission
-- Temporal proximity (within 24 hours)
-- Overlapping durations
+#### Order Specifications
+| Internal Name   | Description                       |
+|------------------|----------------------------------|
+| order_id         | Unique prescription/order ID     |
+| question_id      | The question asked               |
+| answer           | The recorded answer              |
 
-Example:
-```python
-# Two prescriptions within 24 hours are grouped together
-Prescription 1: 2024-01-01 10:00 to 2024-01-07 10:00
-Prescription 2: 2024-01-02 09:00 to 2024-01-08 09:00
-→ Treatment Group 0
-```
+---
 
-### 3. Culture Matching
-Cultures are matched to prescriptions based on configurable time windows:
-- Default: 72 hours before to 24 hours after prescription start
-- Intra-abdominal: 72 hours before to 48 hours after
-- Custom windows can be defined in configuration
+## Processing Steps
 
-### 4. Data Processing Flow
-1. Load and validate configuration
-2. Load data sources
-3. Process each patient:
-   - Group prescriptions by admission
-   - Create treatment groups
-   - Match relevant cultures
-   - Build output structure
-4. Save JSON output
+### 1. Load and Validate Configuration
+Ensures all required column mappings are present per enabled source.
+
+### 2. Load CSV Files
+- Columns are renamed to internal names
+- Extra columns are dropped
+- Timestamps are parsed to `datetime`
+
+### 3. Group Prescriptions into Treatments
+Prescriptions are grouped when:
+- They belong to the same patient and contact
+- They are within 24 hours of each other
+
+### 4. Match Cultures to Treatment Start
+Cultures are selected when:
+- `patient_id` matches
+- `sample_datetime` is within the configured window around treatment start
+
+### 5. Link Order Specifications
+If available, order specifications are matched by:
+- `patient_id`, `patient_contact_id`, and `order_id`
+
+---
 
 ## Running the Pipeline
 
-Basic usage:
+Run the pipeline using a config:
+
 ```bash
-python main.py --config config.yaml
+python src/main.py --config test_scenarios/extended/config.yaml
 ```
 
-The pipeline will:
-1. Load the specified configuration
-2. Process all enabled data sources
-3. Generate the output JSON file
+Or use the default:
+
+```bash
+python src/main.py --config src/config.yaml
+```
+
+To generate synthetic input data:
+
+```bash
+python data/generate_test_data.py
+```
+
+---
 
 ## Test Scenarios
 
-The project includes three test scenarios to demonstrate different use cases:
+Each scenario lives under `test_scenarios/` and uses its own config file + generated data in `data/raw/`.
 
-### 1. Minimal Scenario
-- Only prescriptions and cultures
-- Basic column names
-- No admission data
-- Simple time windows
+| Scenario    | Prescriptions | Cultures | Admissions | Orders | Custom Names | Extra Fields |
+|-------------|---------------|----------|------------|--------|--------------|---------------|
+| Minimal     | ✅             | ✅        | ❌          | ❌      | English       | No            |
+| Alternative | ✅             | ✅        | ❌          | ❌      | Hospital-style | No            |
+| Extended    | ✅             | ✅        | ✅          | ✅      | Dutch         | Yes           |
 
-### 2. Alternative Scenario
-- All data sources
-- Different column naming convention
-- Full admission information
-- Standard time windows
-
-### 3. Extended Scenario
-- All data sources with additional columns
-- Complex data relationships
-- Multiple time window configurations
-- Additional metadata fields
-
-To generate test data:
-```bash
-python test_scenarios/generate_test_data.py
-```
+---
 
 ## Output Format
 
-The pipeline generates a JSON file with the following structure:
+Each run generates a `.json` file (default: `grouped_treatments_and_cultures.json`):
+
+### Example Structure
+
 ```json
 {
-  "patient_id": {
+  "PSEUDO_1": {
     "admissions": [
       {
-        "patient_contact_id": "...",
-        "admission_start": "...",
-        "admission_end": "...",
+        "patient_contact_id": "CONTACT_1409",
+        "admission_start": "2023-01-01 10:00:00",
+        "admission_end": "2023-01-10 12:00:00",
         "treatments": [
           {
             "treatment_id": 0,
-            "treatment_start": "...",
-            "treatment_end": "...",
+            "treatment_start": "2023-01-01 10:00:00",
+            "treatment_end": "2023-01-07 10:00:00",
             "prescriptions": [
               {
-                "start_datetime": "...",
-                "medication_name": "...",
-                "cultures": [
-                  {
-                    "sample_datetime": "...",
-                    "material_category": "...",
-                    "culture_result": "..."
-                  }
-                ]
+                "medication_name": "DOXYCILINE",
+                "start_datetime": "2023-01-01 10:00:00",
+                ...
+              }
+            ],
+            "treatment_cultures": [
+              {
+                "sample_datetime": "2023-01-01 08:00:00",
+                "material_category": "Bloed",
+                "culture_result": "Positief"
               }
             ]
           }
@@ -227,46 +262,50 @@ The pipeline generates a JSON file with the following structure:
 }
 ```
 
+---
+
 ## Customization
 
-### Adding New Data Sources
-1. Add source configuration to `config.yaml`
-2. Define column mappings
-3. Update `data_processor.py` if new processing logic is needed
+### Adding New Optional Columns
+- Add them to `columns.optional` in the config
+- No code changes needed if passthrough is sufficient
 
-### Modifying Time Windows
-Update the `culture_time_windows` section in configuration:
-```yaml
-analysis_options:
-  culture_time_windows:
-    custom_case:
-      hours_before: 48
-      hours_after: 24
-```
+### Adding a New Data Source
+1. Add it under `data_sources` in config
+2. Add a loader to `DataProcessor.load_data_sources()` if needed
 
-### Adding Custom Logic
-The `DataProcessor` class in `data_processor.py` can be extended with new methods for custom processing requirements.
+### Changing Grouping Logic
+- Modify `_create_treatment_groups()` in `data_processor.py`
+
+### Modifying Culture Matching Windows
+Edit `analysis_options.culture_time_windows` in your config file.
+
+---
 
 ## Error Handling
 
-The pipeline includes robust error handling:
-- Configuration validation
-- Data source validation
-- DateTime parsing with error handling
-- Missing data handling
-- Optional data source handling
+Handled internally:
+- Missing config sections or required columns → `ConfigurationError`
+- Missing files → graceful exit
+- Timestamp parsing errors → `NaT` values skipped
+- Optional sources can be disabled cleanly
+
+---
 
 ## Best Practices
 
-1. Always validate your configuration before running
-2. Test with a small dataset first
-3. Back up your data before processing
-4. Monitor memory usage with large datasets
-5. Use appropriate time windows for your use case
+- Validate your config before running
+- Run small test scenarios before scaling up
+- Keep test configs under `test_scenarios/` for clarity
+- Use `generate_test_data.py` to simulate new cases
+
+---
 
 ## Limitations
 
-1. All dates must be in "YYYY-MM-DD HH:MM:SS" format
-2. CSV files must use comma as delimiter
-3. Memory usage scales with dataset size
-4. Treatment grouping uses fixed 24-hour window 
+1. Assumes data is in `.csv` format (UTF-8 encoded)
+2. Timestamp fields must be parseable to `datetime`
+3. Grouping uses a fixed 24-hour gap rule (custom logic must be added manually)
+4. Memory usage scales linearly with dataset size
+
+---
