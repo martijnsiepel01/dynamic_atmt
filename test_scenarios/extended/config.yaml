@@ -3,84 +3,90 @@ data_sources:
     enabled: true
     file_path: "data/raw/extended/mmi_MedicatieVoorschrift.csv"
     columns:
-      patient_id: "Pseudo_id"
-      patient_contact_id: "PatientContactId"
-      start_datetime: "StartDatumTijd"
-      stop_datetime: "StopDatumTijd"
-      prescription_datetime: "VoorschrijfDatumTijd"
-      medication_name: "MedicatieStofnaam"
-      administration_route: "ToedieningsRoute"
-      specialty: "SpecialismeOmschrijving"
-      # Additional columns for extended scenario
-      subspecialty: "SubSpecialismeOmschrijving"
-      department: "WerkplekOmschrijving"
-      dosage_min: "DoseringBerekendMin"
-      dosage_max: "DoseringBerekendMax"
-      dosage_unit: "DoseringBerekendEenheidOmschrijving"
-      frequency: "MedicatieFrequentieOmschrijving"
-      status: "OrderStatus"
+      required:
+        patient_id:             "Pseudo_id"
+        patient_contact_id:     "PatientContactId"
+        start_datetime:         "StartDatumTijd"
+        stop_datetime:          "StopDatumTijd"
+        prescription_datetime:  "VoorschrijfDatumTijd"
+        medication_name:        "MedicatieStofnaam"
+      optional:
+        administration_route:   "ToedieningsRoute"
+        specialty:              "SpecialismeOmschrijving"
+        subspecialty:           "SubSpecialismeOmschrijving"
+        department:             "WerkplekOmschrijving"
+        dosage_min:             "DoseringBerekendMin"
+        dosage_max:             "DoseringBerekendMax"
+        dosage_unit:            "DoseringBerekendEenheidOmschrijving"
+        frequency:              "MedicatieFrequentieOmschrijving"
+        status:                 "OrderStatus"
+        atc_code:               "ATCCode"
+        medication_article_code: "MedicatieArtikelCode"
 
   order_specifications:
     enabled: true
     file_path: "data/raw/extended/OrderSpecificatievraagAntwoord.csv"
     columns:
-      patient_id: "Pseudo_id"
-      patient_contact_id: "PatientContactId"
-      order_id: "OrderId"
-      question_id: "OrderSpecificatievraagId"
-      answer: "OrderSpecificatievraagAntwoord"
-      # Additional columns
-      question_text: "OrderSpecificatievraagFormulering"
-      location: "ZiekenhuisLocatie"
-      is_executable: "IsZorgOrderUitvoerbaar"
-      is_parent: "IsZorgOrderParent"
+      required:
+        patient_id:             "Pseudo_id"
+        patient_contact_id:     "PatientContactId"
+        order_id:               "OrderId"
+        question_id:            "OrderSpecificatievraagFormulering"
+        answer:                 "OrderSpecificatievraagAntwoord"
+      optional:
+        location:               "ZiekenhuisLocatie"
+        is_executable:          "IsZorgOrderUitvoerbaar"
+        is_parent:              "IsZorgOrderParent"
 
   cultures:
     enabled: true
     file_path: "data/raw/extended/kweken.csv"
     columns:
-      patient_id: "patientID_pseudo"
-      sample_datetime: "afnamedatumtijd"
-      material_category: "materiaal_catCustom"
-      culture_result: "kweek_uitslagDef"
-      # Additional columns
-      material_code: "materiaal_code"
-      material_description: "materiaal_description"
-      culture_purpose: "kweekdoel"
-      department: "afdeling"
-      location: "AUMC_locatie"
+      required:
+        patient_id:             "patientID_pseudo"
+        sample_datetime:        "afnamedatumtijd"
+        material_category:      "materiaal_catCustom"
+      optional:
+        culture_result:         "kweek_uitslagDef"
+        material_code:          "materiaal_code"
+        material_description:   "materiaal_description"
+        culture_purpose:        "kweekdoel"
+        department:             "afdeling"
+        location:               "AUMC_locatie"
 
   admissions:
     enabled: true
     file_path: "data/raw/extended/mmi_OpnameDeeltraject.csv"
     columns:
-      patient_id: "Pseudo_id"
-      patient_contact_id: "PatientContactId"
-      admission_start: "OpnametrajectOpnameDatumTijd"
-      admission_end: "OpnametrajectOntslagDatumTijd"
-      # Additional columns
-      is_emergency: "IsSEHDeeltraject"
-      is_icu: "IsICDeeltraject"
-      specialty: "Specialisme"
-      subspecialty: "Subspecialisme"
-      department: "Werkplek"
-      duration_hours: "LigduurUren"
+      required:
+        patient_id:             "Pseudo_id"
+        patient_contact_id:     "PatientContactId"
+        admission_start:        "OpnametrajectOpnameDatumTijd"
+        admission_end:          "OpnametrajectOntslagDatumTijd"
+      optional:
+        admission_type:         "OpnamedeeltrajectVolgnummer"
+        is_emergency:           "IsSEHDeeltraject"
+        is_icu:                 "IsICDeeltraject"
+        specialty:              "Specialisme"
+        subspecialty:           "Subspecialisme"
+        department:             "Werkplek"
+        duration_hours:         "LigduurUren"
 
 analysis_options:
   culture_time_windows:
     default:
       hours_before: 72
-      hours_after: 24
+      hours_after:  24
     intra_abdominal:
       hours_before: 72
-      hours_after: 48
-    emergency:  # Additional time window for emergency cases
+      hours_after:  48
+    emergency:
       hours_before: 24
-      hours_after: 12
-    icu:  # Additional time window for ICU cases
+      hours_after:  12
+    icu:
       hours_before: 48
-      hours_after: 36
+      hours_after:  36
 
 output:
   format: "json"
-  file_path: "data/processed/extended/output.json" 
+  file_path: "data/processed/extended/output.json"

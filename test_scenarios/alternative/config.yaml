@@ -3,52 +3,51 @@ data_sources:
     enabled: true
     file_path: "data/raw/alternative/mmi_MedicatieVoorschrift.csv"
     columns:
-      patient_id: "mrn"
-      patient_contact_id: "encounter_id"
-      start_datetime: "medication_start"
-      stop_datetime: "medication_stop"
-      prescription_datetime: "order_timestamp"
-      medication_name: "generic_name"
-      administration_route: "admin_route"
-      specialty: "ordering_dept"
+      required:
+        patient_id:             "mrn"
+        patient_contact_id:     "encounter_id"
+        start_datetime:         "medication_start"
+        stop_datetime:          "medication_stop"
+        prescription_datetime:  "order_timestamp"
+        medication_name:        "generic_name"
+      optional:
+        administration_route:   "admin_route"
+        specialty:              "ordering_dept"
 
   order_specifications:
     enabled: false
     file_path: "data/raw/alternative/OrderSpecificatievraagAntwoord.csv"
     columns:
-      patient_id: "mrn"
-      patient_contact_id: "encounter_id"
-      order_id: "order_number"
-      question_id: "question_code"
-      answer: "response_text"
+      required: {}
+      optional: {}
 
   cultures:
     enabled: true
     file_path: "data/raw/alternative/kweken.csv"
     columns:
-      patient_id: "mrn"
-      sample_datetime: "specimen_datetime"
-      material_category: "source"
-      culture_result: "culture_finding"
+      required:
+        patient_id:             "mrn"
+        sample_datetime:        "specimen_datetime"
+        material_category:      "source"
+      optional:
+        culture_result:         "culture_finding"
 
   admissions:
     enabled: false
     file_path: "data/raw/alternative/mmi_OpnameDeeltraject.csv"
     columns:
-      patient_id: "mrn"
-      patient_contact_id: "encounter_id"
-      admission_start: "admit_date"
-      admission_end: "discharge_date"
+      required: {}
+      optional: {}
 
 analysis_options:
   culture_time_windows:
     default:
       hours_before: 72
-      hours_after: 24
+      hours_after:  24
     intra_abdominal:
       hours_before: 72
-      hours_after: 48
+      hours_after:  48
 
 output:
   format: "json"
-  file_path: "data/processed/alternative/output.json" 
+  file_path: "data/processed/alternative/output.json"

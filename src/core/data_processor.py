@@ -1,300 +1,322 @@
-import pandas as pd
-from typing import Dict, Any, Optional
-from datetime import timedelta
+# src/core/data_processor.py
+"""
+A fully dynamic version of DataProcessor.
+
+*   **Mandatory** columns for each source are enforced at load-time
+    (see `config_loader.get_required_mapping()`).
+*   Every other column is considered **optional** and will be passed
+    straight through to the JSON output – no code changes needed when
+    you add or remove optional columns in *config.yaml*.
+
+The only fields that are *never* copied to the JSON are the ones used
+purely for internal housekeeping (listed in `ALWAYS_IGNORE`).
+"""
+
+from __future__ import annotations
+
 import json
-from .config_loader import get_column_mapping
+import datetime as _dt
+from typing import Dict, Any, Optional, List, Set
+
+import pandas as pd
+from pandas import Timestamp
+from datetime import timedelta
+
+from .config_loader import (
+    get_column_mapping,
+    get_required_mapping,
+    ConfigurationError,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _is_dt(x) -> bool:
+    return isinstance(x, (Timestamp, _dt.datetime))
+
+
+def _fmt_dt(x) -> Optional[str]:
+    """Format Timestamp → str, keep None/NaT as None, leave others intact."""
+    if pd.isna(x):
+        return None
+    if _is_dt(x):
+        return x.strftime("%Y-%m-%d %H:%M:%S")
+    return x
+
+
+def _row_to_dict(row: pd.Series, ignore: Set[str] | None = None) -> Dict[str, Any]:
+    """
+    Convert a Series to a JSON-ready dict, keeping *all* non-NA columns
+    except those in *ignore*.
+    """
+    ignore = ignore or set()
+    out: Dict[str, Any] = {}
+    for col, val in row.items():
+        if col in ignore or pd.isna(val):
+            continue
+        out[col] = _fmt_dt(val)
+    return out
+
+
+# House-keeping columns that should never leak to JSON
+ALWAYS_IGNORE: Set[str] = {
+    "group",  # internal treatment group id
+}
+
+# ---------------------------------------------------------------------------
+# Main class
+# ---------------------------------------------------------------------------
+
 
 class DataProcessor:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
-        self.data_sources = {}
+        self.data_sources: Dict[str, pd.DataFrame] = {}
         self.load_data_sources()
 
+    # --------------------------------------------------------------------- #
+    # 1) LOAD & VALIDATE DATA
+    # --------------------------------------------------------------------- #
+
     def load_data_sources(self) -> None:
-        """Load all enabled data sources."""
-        for source_name, source_config in self.config['data_sources'].items():
-            if source_config['enabled']:
-                try:
-                    df = pd.read_csv(source_config['file_path'], encoding='utf-8')
-                except UnicodeDecodeError:
-                    # Try different encoding if utf-8 fails
-                    df = pd.read_csv(source_config['file_path'], encoding='latin1')
-                
-                # Rename columns according to mapping
-                column_mapping = get_column_mapping(self.config, source_name)
-                df = df.rename(columns={v: k for k, v in column_mapping.items()})
-                
-                # Convert datetime columns after renaming
-                datetime_cols = ['start_datetime', 'stop_datetime', 'prescription_datetime', 
-                               'admission_start', 'admission_end', 'sample_datetime']
-                for col in datetime_cols:
-                    if col in df.columns:
-                        df[col] = pd.to_datetime(df[col], errors='coerce')
-                
-                self.data_sources[source_name] = df
+        for src, scfg in self.config["data_sources"].items():
+            if not scfg.get("enabled", False):
+                continue
 
-    def _get_order_specifications(self, patient_id: str, patient_contact_id: str, order_id: str) -> list:
-        """Get order specifications for a prescription."""
-        if 'order_specifications' not in self.data_sources or not self.config['data_sources']['order_specifications']['enabled']:
-            return []
-        
-        specs_df = self.data_sources['order_specifications']
-        matching_specs = specs_df[
-            (specs_df['patient_id'] == patient_id) &
-            (specs_df['patient_contact_id'] == patient_contact_id) &
-            (specs_df['order_id'] == order_id)
-        ]
-        
-        if len(matching_specs) == 0:
-            return []
-        
-        return [{
-            'question_id': row['question_id'],
-            'answer': row['answer']
-        } for _, row in matching_specs.iterrows()]
+            df = pd.read_csv(scfg["file_path"], encoding="utf-8", low_memory=False)
 
-    def process_data(self) -> Dict:
-        """Process the data according to configuration and return the final structure."""
-        prescriptions_df = self.data_sources['prescriptions']
+            # 1) rename *only* the columns defined in the mapping
+            mapping = get_column_mapping(self.config, src)      # req + opt
+            df = df.rename(columns={v: k for k, v in mapping.items()})
 
-        result = {}
-        
-        for patient_id, patient_data in prescriptions_df.groupby('patient_id'):
-            admissions_list = []
-            
-            # Group prescriptions by admission
-            for adm_id, adm_data in patient_data.groupby('patient_contact_id'):
-                # Create treatment groups within this admission
-                adm_data = self._create_treatment_groups(adm_data)
-                admission_dict = self._process_admission(adm_id, adm_data)
-                admissions_list.append(admission_dict)
-            
-            result[str(patient_id)] = {
-                "admissions": admissions_list
-            }
-        
+            # 2) 🚫 throw away every other column
+            allowed_cols = set(mapping.keys())                  # internal names
+            df = df.loc[:, df.columns.isin(allowed_cols)].copy()
+
+            # 3) enforce mandatory columns are present
+            req_cols = list(get_required_mapping(self.config, src).keys())
+            missing = [c for c in req_cols if c not in df.columns]
+            if missing:
+                raise ConfigurationError(
+                    f"{src}: file {scfg['file_path']} misses required column(s): "
+                    f"{', '.join(missing)}"
+                )
+
+            # 4) parse *_datetime columns that survived the trim-down
+            for col in [c for c in df.columns if c.endswith("_datetime")]:
+                df[col] = pd.to_datetime(df[col], errors="coerce")
+
+            self.data_sources[src] = df
+
+    # --------------------------------------------------------------------- #
+    # 2) PUBLIC ENTRY POINT
+    # --------------------------------------------------------------------- #
+
+    def process_data(self) -> Dict[str, Any]:
+        """
+        Orchestrate the full processing flow and return the final nested dict.
+        """
+        prescriptions_df = self.data_sources["prescriptions"]
+        result: Dict[str, Any] = {}
+
+        for patient_id, pt_df in prescriptions_df.groupby("patient_id"):
+            admissions: List[Dict[str, Any]] = []
+
+            # group by admission / encounter
+            for adm_id, adm_df in pt_df.groupby("patient_contact_id"):
+                adm_df = self._create_treatment_groups(adm_df)
+                admissions.append(self._process_admission(adm_id, adm_df))
+
+            result[str(patient_id)] = {"admissions": admissions}
+
         return result
 
-    def _create_treatment_groups(self, prescriptions: pd.DataFrame) -> pd.DataFrame:
-        """Create treatment groups based on overlapping prescription times."""
-        if len(prescriptions) == 0:
-            return prescriptions
-        
-        # Sort by start time
-        prescriptions = prescriptions.sort_values('start_datetime')
-        
-        # Initialize groups
-        current_group = 0
-        groups = []
-        current_end = prescriptions.iloc[0]['stop_datetime']
-        
-        for _, row in prescriptions.iterrows():
-            # If this prescription starts after the current group ends
-            # (with a 24-hour buffer), start a new group
-            if pd.notnull(row['start_datetime']) and pd.notnull(current_end):
-                if row['start_datetime'] > current_end + pd.Timedelta(hours=24):
-                    current_group += 1
-                current_end = max(current_end, row['stop_datetime'])
-            groups.append(current_group)
-        
-        prescriptions['group'] = groups
-        return prescriptions
+    # --------------------------------------------------------------------- #
+    # 3) ADMISSION / TREATMENT / PRESCRIPTION
+    # --------------------------------------------------------------------- #
 
-    def _process_admission(self, adm_id: str, adm_data: pd.DataFrame) -> Dict:
-        """Process a single admission's data."""
-        admission_info = self._get_admission_info(adm_id)
-        treatments_list = []
-        
-        for group_id, treatment_data in adm_data.groupby('group'):
-            treatment_dict = self._process_treatment(group_id, treatment_data)
-            treatments_list.append(treatment_dict)
-        
+    def _create_treatment_groups(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Group overlapping prescriptions (24 h gap rule)."""
+        if df.empty:
+            return df
+
+        df = df.sort_values("start_datetime")
+        groups: List[int] = []
+        curr_group = 0
+        curr_end = df.iloc[0]["stop_datetime"]
+
+        for _, row in df.iterrows():
+            if (
+                pd.notna(row["start_datetime"])
+                and pd.notna(curr_end)
+                and row["start_datetime"] > curr_end + pd.Timedelta(hours=24)
+            ):
+                curr_group += 1
+            curr_end = max(curr_end, row["stop_datetime"])
+            groups.append(curr_group)
+
+        df = df.copy()
+        df["group"] = groups
+        return df
+
+    # ------------------------
+
+    def _process_admission(self, adm_id: str, adm_df: pd.DataFrame) -> Dict[str, Any]:
+        info = self._get_admission_info(adm_id)
+        treatments: List[Dict[str, Any]] = []
+
+        for grp_id, grp_df in adm_df.groupby("group"):
+            treatments.append(self._process_treatment(grp_id, grp_df))
+
         return {
             "patient_contact_id": adm_id,
-            "admission_start": self._format_datetime(admission_info.get('admission_start')),
-            "admission_end": self._format_datetime(admission_info.get('admission_end')),
-            "treatments": treatments_list
+            "admission_start": _fmt_dt(info.get("admission_start")),
+            "admission_end": _fmt_dt(info.get("admission_end")),
+            "treatments": treatments,
         }
 
-    def _get_admission_info(self, adm_id: str) -> Dict:
-        """Get admission information from admissions data source."""
-        if 'admissions' not in self.data_sources:
+    # ------------------------
+
+    def _get_admission_info(self, adm_id: str) -> Dict[str, Any]:
+        if "admissions" not in self.data_sources:
             return {}
-        
-        admission_data = self.data_sources['admissions']
-        matching_admissions = admission_data[admission_data['patient_contact_id'] == adm_id]
-        if len(matching_admissions) == 0:
-            return {}
-        
-        admission = matching_admissions.iloc[0]
-        return {
-            "admission_start": admission['admission_start'],
-            "admission_end": admission['admission_end']
-        }
+        adm_df = self.data_sources["admissions"]
+        m = adm_df[adm_df["patient_contact_id"] == adm_id]
+        return m.iloc[0].to_dict() if not m.empty else {}
 
-    def _process_treatment(self, group_id: str, treatment_data: pd.DataFrame) -> Dict:
-        treatment_start = treatment_data['start_datetime'].min()
-        treatment_end = treatment_data['stop_datetime'].max()
+    # ------------------------
 
-        prescriptions_list = []
-        for _, presc in treatment_data.iterrows():
-            prescriptions_list.append(self._process_prescription(presc))
+    def _process_treatment(self, grp_id: int, grp_df: pd.DataFrame) -> Dict[str, Any]:
+        t_start = grp_df["start_datetime"].min()
+        t_end = grp_df["stop_datetime"].max()
 
-        # 🧠 Use first prescription to anchor culture window
-        first_presc = treatment_data.sort_values("start_datetime").iloc[0]
+        prescriptions = [
+            self._process_prescription(row) for _, row in grp_df.iterrows()
+        ]
 
-        time_windows = self.config['analysis_options']['culture_time_windows']
-        window = (time_windows['intra_abdominal']
-                if self._is_intra_abdominal(first_presc)
-                else time_windows['default'])
-
-        # 🧫 Get cultures only once per treatment
-        raw_cultures = self._find_relevant_cultures(
-            patient_id=first_presc['patient_id'],
-            start_time=first_presc['start_datetime'],
-            hours_before=window['hours_before'],
-            hours_after=window['hours_after'],
+        first = grp_df.sort_values("start_datetime").iloc[0]
+        window_cfg = self.config["analysis_options"]["culture_time_windows"]
+        win = (
+            window_cfg["intra_abdominal"]
+            if self._is_intra_abdominal(first)
+            else window_cfg["default"]
         )
 
-        # 🧼 Deduplicate cultures
-        culture_seen = set()
-        treatment_cultures = []
-        for cult in raw_cultures:
-            key = (
-                cult.get("ordernummer"),
-                cult.get("sample_datetime"),
-                cult.get("material_category"),
-                cult.get("culture_result"),
-            )
-            if key not in culture_seen:
-                culture_seen.add(key)
-                treatment_cultures.append(cult)
+        cultures = self._find_relevant_cultures(
+            patient_id=first["patient_id"],
+            anchor=first["start_datetime"],
+            hrs_before=win["hours_before"],
+            hrs_after=win["hours_after"],
+        )
 
         return {
-            "treatment_id": int(group_id),
-            "treatment_start": self._format_datetime(treatment_start),
-            "treatment_end": self._format_datetime(treatment_end),
-            "prescriptions": prescriptions_list,
-            "treatment_cultures": treatment_cultures,
+            "treatment_id": int(grp_id),
+            "treatment_start": _fmt_dt(t_start),
+            "treatment_end": _fmt_dt(t_end),
+            "prescriptions": prescriptions,
+            "treatment_cultures": cultures,
         }
+
+    # ------------------------
+
+    def _process_prescription(self, row: pd.Series) -> Dict[str, Any]:
+        result = _row_to_dict(row, ignore=ALWAYS_IGNORE)
+
+        # Attach order specifications (if any)
+        specs = self._get_order_specifications(
+            row["patient_id"], row["patient_contact_id"], row.get("order_id")
+        )
+        if specs:
+            result["order_specifications"] = specs
+
+        return result
+
+    # --------------------------------------------------------------------- #
+    # 4) ORDER SPECIFICATIONS & CULTURES
+    # --------------------------------------------------------------------- #
+
+    def _get_order_specifications(
+        self, patient_id: str, patient_contact_id: str, order_id: str | None
+    ) -> List[Dict[str, Any]]:
+        if (
+            "order_specifications" not in self.data_sources
+            or not self.config["data_sources"]["order_specifications"]["enabled"]
+            or order_id is None
+        ):
+            return []
+
+        df = self.data_sources["order_specifications"]
+        specs = df[
+            (df["patient_id"] == patient_id)
+            & (df["patient_contact_id"] == patient_contact_id)
+            & (df["order_id"] == order_id)
+        ]
+
+        return [_row_to_dict(r, ignore=set()) for _, r in specs.iterrows()]
+
+    # ------------------------
 
     def _find_relevant_cultures(
         self,
         patient_id: str,
-        start_time: pd.Timestamp,
-        hours_before: int,
-        hours_after: int
-    ) -> list:
-        if 'cultures' not in self.data_sources or pd.isna(start_time):
+        anchor: Timestamp,
+        hrs_before: int,
+        hrs_after: int,
+    ) -> List[Dict[str, Any]]:
+        if "cultures" not in self.data_sources or pd.isna(anchor):
             return []
 
-        cultures_df = self.data_sources['cultures']
-        start_before = start_time - timedelta(hours=hours_before)
-        start_after = start_time + timedelta(hours=hours_after)
+        cdf = self.data_sources["cultures"]
+        t0 = anchor - timedelta(hours=hrs_before)
+        t1 = anchor + timedelta(hours=hrs_after)
 
-        relevant_cultures = cultures_df[
-            (cultures_df['patient_id'] == patient_id) &
-            (cultures_df['sample_datetime'] >= start_before) &
-            (cultures_df['sample_datetime'] <= start_after)
-        ].sort_values('sample_datetime')
+        rel = cdf[
+            (cdf["patient_id"] == patient_id)
+            & (cdf["sample_datetime"] >= t0)
+            & (cdf["sample_datetime"] <= t1)
+        ].sort_values("sample_datetime")
 
-        return [
-            {
-                'sample_datetime': self._format_datetime(row['sample_datetime']),
-                'material_category': row.get('material_category'),
-                'culture_result': row.get('culture_result'),
-                'ordernummer': row.get('ordernummer'),
-                'microbe_genus': row.get('microbe_genus'),
-                'microbe_catCustom': row.get('microbe_catCustom')
-            }
-            for _, row in relevant_cultures.iterrows()
-        ]
-
-    def _process_prescription(self, prescription: pd.Series) -> Dict:
-        """Process a single prescription's data."""
-        # Get time window configuration
-        time_windows = self.config['analysis_options']['culture_time_windows']
-        window = (time_windows['intra_abdominal'] 
-                 if self._is_intra_abdominal(prescription)
-                 else time_windows['default'])
-            
-        # Get order specifications
-        order_specs = self._get_order_specifications(
-            prescription['patient_id'],
-            prescription['patient_contact_id'],
-            prescription.get('order_id', None)
-        )
-        
-        result = {
-            "start_datetime": self._format_datetime(prescription['start_datetime']),
-            "stop_datetime": self._format_datetime(prescription['stop_datetime']),
-            "prescription_datetime": self._format_datetime(prescription['prescription_datetime']),
-            "medication_name": prescription['medication_name'],
-            "administration_route": prescription['administration_route'],
-            "specialty": prescription['specialty']
-            }
-        
-        # Add ATC code if available
-        if 'atc_code' in prescription and pd.notna(prescription['atc_code']):
-            result["atc_code"] = prescription['atc_code']
-        
-        # Only add order specifications if they exist
-        if order_specs:
-            result["order_specifications"] = order_specs
-        
-        return result
-
-    def _is_intra_abdominal(self, prescription: pd.Series) -> bool:
-        """Check if prescription is for intra-abdominal infection."""
-        # Check order specifications for intra-abdominal infection
-        if 'order_specifications' in self.data_sources and self.config['data_sources']['order_specifications']['enabled']:
-            specs = self._get_order_specifications(
-                prescription['patient_id'],
-                prescription['patient_contact_id'],
-                prescription.get('order_id', None)
+        # de-duplicate on a minimal composite key
+        seen = set()
+        out: List[Dict[str, Any]] = []
+        for _, row in rel.iterrows():
+            key = (
+                row.get("ordernummer"),
+                row.get("sample_datetime"),
+                row.get("material_category"),
+                row.get("culture_result"),
             )
-            
-            for spec in specs:
-                if spec['answer'] and 'intra-abdominale infectie' in str(spec['answer']).lower():
-                    return True
-        
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(_row_to_dict(row, ignore=set()))
+
+        return out
+
+    # --------------------------------------------------------------------- #
+    # 5) UTILITY
+    # --------------------------------------------------------------------- #
+
+    def _is_intra_abdominal(self, row: pd.Series) -> bool:
+        """
+        Very specific business rule: check order_specifications for the phrase
+        'intra-abdominale infectie'.
+        """
+        specs = self._get_order_specifications(
+            row["patient_id"], row["patient_contact_id"], row.get("order_id")
+        )
+        for s in specs:
+            if "answer" in s and "intra-abdominale infectie" in str(s["answer"]).lower():
+                return True
         return False
 
-    def _find_relevant_cultures(
-        self, 
-        patient_id: str, 
-        start_time: pd.Timestamp,
-        hours_before: int,
-        hours_after: int
-    ) -> list:
-        """Find cultures within the specified time window."""
-        if 'cultures' not in self.data_sources or pd.isna(start_time):
-            return []
-        
-        cultures_df = self.data_sources['cultures']
-        start_before = start_time - timedelta(hours=hours_before)
-        start_after = start_time + timedelta(hours=hours_after)
-        
-        relevant_cultures = cultures_df[
-            (cultures_df['patient_id'] == patient_id) &
-            (cultures_df['sample_datetime'] >= start_before) &
-            (cultures_df['sample_datetime'] <= start_after)
-        ].sort_values('sample_datetime')
-        
-        return [{
-            'sample_datetime': self._format_datetime(row['sample_datetime']),
-            'material_category': row['material_category'],
-            'culture_result': row['culture_result']
-        } for _, row in relevant_cultures.iterrows()]
+    # --------------------------------------------------------------------- #
+    # 6) SAVE
+    # --------------------------------------------------------------------- #
 
-    def _format_datetime(self, dt) -> Optional[str]:
-        """Format datetime to string or return None if input is None."""
-        if pd.isna(dt):
-            return None
-        return dt.strftime("%Y-%m-%d %H:%M:%S")
-
-    def save_output(self, result: Dict) -> None:
-        """Save the processed data to the specified output file."""
-        output_path = self.config['output']['file_path']
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=4, ensure_ascii=False) 
+    def save_output(self, result: Dict[str, Any]) -> None:
+        path = self.config["output"]["file_path"]
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(result, fh, indent=4, ensure_ascii=False)
