@@ -14,15 +14,11 @@ class DataProcessor:
         """Load all enabled data sources."""
         for source_name, source_config in self.config['data_sources'].items():
             if source_config['enabled']:
-                # Handle Excel files for ATC mapping
-                if source_name == 'atc_mapping' and source_config['file_path'].endswith('.xlsx'):
-                    df = pd.read_excel(source_config['file_path'], sheet_name=source_config['sheet_name'])
-                else:
-                    try:
-                        df = pd.read_csv(source_config['file_path'], encoding='utf-8')
-                    except UnicodeDecodeError:
-                        # Try different encoding if utf-8 fails
-                        df = pd.read_csv(source_config['file_path'], encoding='latin1')
+                try:
+                    df = pd.read_csv(source_config['file_path'], encoding='utf-8')
+                except UnicodeDecodeError:
+                    # Try different encoding if utf-8 fails
+                    df = pd.read_csv(source_config['file_path'], encoding='latin1')
                 
                 # Rename columns according to mapping
                 column_mapping = get_column_mapping(self.config, source_name)
@@ -36,39 +32,6 @@ class DataProcessor:
                         df[col] = pd.to_datetime(df[col], errors='coerce')
                 
                 self.data_sources[source_name] = df
-                
-                # Apply ATC code mapping if enabled
-                if source_name == 'prescriptions' and self.config['data_sources'].get('atc_mapping', {}).get('enabled'):
-                    self._apply_atc_mapping(df)
-
-    def _apply_atc_mapping(self, prescriptions_df: pd.DataFrame) -> None:
-        """Apply ATC code mapping to prescriptions dataframe."""
-        if 'atc_mapping' not in self.data_sources:
-            return
-        
-        atc_mapping_df = self.data_sources['atc_mapping']
-        
-        # Convert medication_article_code to string type in both dataframes
-        prescriptions_df['medication_article_code'] = prescriptions_df['medication_article_code'].astype(str)
-        atc_mapping_df['medication_article_code'] = atc_mapping_df['medication_article_code'].astype(str)
-        
-        # Merge ATC codes
-        prescriptions_df_with_atc = prescriptions_df.merge(
-            atc_mapping_df[['medication_article_code', 'atc_code', 'atc_fallback']], 
-            on='medication_article_code', 
-            how='left',
-            suffixes=('', '_mapped')
-        )
-        
-        # Use fallback ATC code if primary is not available
-        prescriptions_df_with_atc['atc_code'] = prescriptions_df_with_atc.apply(
-            lambda row: row['atc_code'] if pd.notna(row['atc_code']) and str(row['atc_code']).strip() 
-            else (row['atc_fallback'] if pd.notna(row['atc_fallback']) and str(row['atc_fallback']).strip() 
-            else row['atc_code']), axis=1
-        )
-        
-        # Update the dataframe in data_sources
-        self.data_sources['prescriptions'] = prescriptions_df_with_atc.drop(columns=['atc_fallback'])
 
     def _get_order_specifications(self, patient_id: str, patient_contact_id: str, order_id: str) -> list:
         """Get order specifications for a prescription."""
@@ -93,11 +56,7 @@ class DataProcessor:
     def process_data(self) -> Dict:
         """Process the data according to configuration and return the final structure."""
         prescriptions_df = self.data_sources['prescriptions']
-        
-        # Filter J01 antibiotics if ATC mapping is enabled
-        if self.config['data_sources'].get('atc_mapping', {}).get('enabled'):
-            prescriptions_df = prescriptions_df[prescriptions_df['atc_code'].str.startswith("J01", na=False)]
-        
+
         result = {}
         
         for patient_id, patient_data in prescriptions_df.groupby('patient_id'):
@@ -164,7 +123,6 @@ class DataProcessor:
         
         admission_data = self.data_sources['admissions']
         matching_admissions = admission_data[admission_data['patient_contact_id'] == adm_id]
-        
         if len(matching_admissions) == 0:
             return {}
         

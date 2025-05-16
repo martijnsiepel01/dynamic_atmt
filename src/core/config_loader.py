@@ -18,7 +18,7 @@ def load_config(config_path: str) -> Dict[str, Any]:
 
 def validate_config(config: Dict[str, Any]) -> None:
     """Validate the configuration structure and required fields."""
-    required_sources = ['prescriptions', 'cultures', 'admissions']
+    required_sources = ['prescriptions', 'cultures']
     
     if 'data_sources' not in config:
         raise ConfigurationError("Missing 'data_sources' section in config")
