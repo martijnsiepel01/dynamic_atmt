@@ -1,7 +1,7 @@
 data_sources:
   prescriptions:
     enabled: true
-    file_path: "data/raw/prescriptions.csv"
+    file_path: "data/raw/extended/mmi_MedicatieVoorschrift.csv"
     columns:
       patient_id: "Pseudo_id"
       patient_contact_id: "PatientContactId"
@@ -22,7 +22,7 @@ data_sources:
 
   order_specifications:
     enabled: true
-    file_path: "data/raw/orders.csv"
+    file_path: "data/raw/extended/OrderSpecificatievraagAntwoord.csv"
     columns:
       patient_id: "Pseudo_id"
       patient_contact_id: "PatientContactId"
@@ -37,9 +37,9 @@ data_sources:
 
   cultures:
     enabled: true
-    file_path: "data/raw/cultures.csv"
+    file_path: "data/raw/extended/kweken.csv"
     columns:
-      patient_id: "Pseudo_id"
+      patient_id: "patientID_pseudo"
       sample_datetime: "afnamedatumtijd"
       material_category: "materiaal_catCustom"
       culture_result: "kweek_uitslagDef"
@@ -52,7 +52,7 @@ data_sources:
 
   admissions:
     enabled: true
-    file_path: "data/raw/admissions.csv"
+    file_path: "data/raw/extended/mmi_OpnameDeeltraject.csv"
     columns:
       patient_id: "Pseudo_id"
       patient_contact_id: "PatientContactId"

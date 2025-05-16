@@ -33,7 +33,7 @@ class DataProcessor:
                                'admission_start', 'admission_end', 'sample_datetime']
                 for col in datetime_cols:
                     if col in df.columns:
-                        df[col] = pd.to_datetime(df[col], format='%Y-%m-%d %H:%M:%S', errors='coerce')
+                        df[col] = pd.to_datetime(df[col], errors='coerce')
                 
                 self.data_sources[source_name] = df
                 

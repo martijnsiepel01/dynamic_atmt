@@ -1,7 +1,7 @@
 data_sources:
   prescriptions:
     enabled: true
-    file_path: "data/raw/prescriptions.csv"
+    file_path: "data/raw/alternative/mmi_MedicatieVoorschrift.csv"
     columns:
       patient_id: "mrn"
       patient_contact_id: "encounter_id"
@@ -13,8 +13,8 @@ data_sources:
       specialty: "ordering_dept"
 
   order_specifications:
-    enabled: true
-    file_path: "data/raw/orders.csv"
+    enabled: false
+    file_path: "data/raw/alternative/OrderSpecificatievraagAntwoord.csv"
     columns:
       patient_id: "mrn"
       patient_contact_id: "encounter_id"
@@ -24,7 +24,7 @@ data_sources:
 
   cultures:
     enabled: true
-    file_path: "data/raw/microbiology.csv"
+    file_path: "data/raw/alternative/kweken.csv"
     columns:
       patient_id: "mrn"
       sample_datetime: "specimen_datetime"
@@ -32,8 +32,8 @@ data_sources:
       culture_result: "culture_finding"
 
   admissions:
-    enabled: true
-    file_path: "data/raw/encounters.csv"
+    enabled: false
+    file_path: "data/raw/alternative/mmi_OpnameDeeltraject.csv"
     columns:
       patient_id: "mrn"
       patient_contact_id: "encounter_id"

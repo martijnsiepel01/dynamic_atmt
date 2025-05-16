@@ -10,7 +10,7 @@ project/
 │   ├── raw/              # Raw input data files
 │   └── processed/        # Generated output files
 ├── docs/
-│   ├── README.md         # Detailed documentation
+│   ├── README.md         # Documentation
 ├── src/
 │   ├── core/            # Core processing logic
 │   │   ├── config_loader.py
@@ -21,7 +21,8 @@ project/
 ├── test_scenarios/      # Test scenario configurations and data
 │   ├── minimal/
 │   ├── alternative/
-│   └── extended/
+│   |── extended/
+├   └── README.md         # Documentation
 └── requirements.txt     # Python dependencies
 ```
 
