@@ -69,4 +69,4 @@ Each config file maps raw input columns to internal names. The structure support
 
 ## License
 
-This project is licensed under the MIT License – see the LICENSE file for details.
+This code is provided under a custom license. See the [LICENSE](./LICENSE) file for terms of use
