@@ -18,8 +18,8 @@ def main():
     # # Process data
     result = processor.process_data()
     
-    # # Save output
-    # processor.save_output(result)
+    # Save output
+    processor.save_output(result)
 
 if __name__ == "__main__":
     main() 

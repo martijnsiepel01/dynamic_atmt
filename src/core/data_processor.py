@@ -133,21 +133,82 @@ class DataProcessor:
         }
 
     def _process_treatment(self, group_id: str, treatment_data: pd.DataFrame) -> Dict:
-        """Process a single treatment's data."""
         treatment_start = treatment_data['start_datetime'].min()
         treatment_end = treatment_data['stop_datetime'].max()
-        
+
         prescriptions_list = []
         for _, presc in treatment_data.iterrows():
-            prescription_dict = self._process_prescription(presc)
-            prescriptions_list.append(prescription_dict)
-        
+            prescriptions_list.append(self._process_prescription(presc))
+
+        # 🧠 Use first prescription to anchor culture window
+        first_presc = treatment_data.sort_values("start_datetime").iloc[0]
+
+        time_windows = self.config['analysis_options']['culture_time_windows']
+        window = (time_windows['intra_abdominal']
+                if self._is_intra_abdominal(first_presc)
+                else time_windows['default'])
+
+        # 🧫 Get cultures only once per treatment
+        raw_cultures = self._find_relevant_cultures(
+            patient_id=first_presc['patient_id'],
+            start_time=first_presc['start_datetime'],
+            hours_before=window['hours_before'],
+            hours_after=window['hours_after'],
+        )
+
+        # 🧼 Deduplicate cultures
+        culture_seen = set()
+        treatment_cultures = []
+        for cult in raw_cultures:
+            key = (
+                cult.get("ordernummer"),
+                cult.get("sample_datetime"),
+                cult.get("material_category"),
+                cult.get("culture_result"),
+            )
+            if key not in culture_seen:
+                culture_seen.add(key)
+                treatment_cultures.append(cult)
+
         return {
             "treatment_id": int(group_id),
             "treatment_start": self._format_datetime(treatment_start),
             "treatment_end": self._format_datetime(treatment_end),
-            "prescriptions": prescriptions_list
+            "prescriptions": prescriptions_list,
+            "treatment_cultures": treatment_cultures,
         }
+
+    def _find_relevant_cultures(
+        self,
+        patient_id: str,
+        start_time: pd.Timestamp,
+        hours_before: int,
+        hours_after: int
+    ) -> list:
+        if 'cultures' not in self.data_sources or pd.isna(start_time):
+            return []
+
+        cultures_df = self.data_sources['cultures']
+        start_before = start_time - timedelta(hours=hours_before)
+        start_after = start_time + timedelta(hours=hours_after)
+
+        relevant_cultures = cultures_df[
+            (cultures_df['patient_id'] == patient_id) &
+            (cultures_df['sample_datetime'] >= start_before) &
+            (cultures_df['sample_datetime'] <= start_after)
+        ].sort_values('sample_datetime')
+
+        return [
+            {
+                'sample_datetime': self._format_datetime(row['sample_datetime']),
+                'material_category': row.get('material_category'),
+                'culture_result': row.get('culture_result'),
+                'ordernummer': row.get('ordernummer'),
+                'microbe_genus': row.get('microbe_genus'),
+                'microbe_catCustom': row.get('microbe_catCustom')
+            }
+            for _, row in relevant_cultures.iterrows()
+        ]
 
     def _process_prescription(self, prescription: pd.Series) -> Dict:
         """Process a single prescription's data."""
@@ -156,15 +217,7 @@ class DataProcessor:
         window = (time_windows['intra_abdominal'] 
                  if self._is_intra_abdominal(prescription)
                  else time_windows['default'])
-        
-        # Find relevant cultures
-        relevant_cultures = self._find_relevant_cultures(
-            prescription['patient_id'],
-            prescription['start_datetime'],
-            window['hours_before'],
-            window['hours_after']
-        )
-        
+            
         # Get order specifications
         order_specs = self._get_order_specifications(
             prescription['patient_id'],
@@ -178,9 +231,8 @@ class DataProcessor:
             "prescription_datetime": self._format_datetime(prescription['prescription_datetime']),
             "medication_name": prescription['medication_name'],
             "administration_route": prescription['administration_route'],
-            "specialty": prescription['specialty'],
-            "cultures": relevant_cultures
-        }
+            "specialty": prescription['specialty']
+            }
         
         # Add ATC code if available
         if 'atc_code' in prescription and pd.notna(prescription['atc_code']):
