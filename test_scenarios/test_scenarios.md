@@ -1,172 +1,110 @@
 # Test Scenarios Documentation
 
-This directory contains three test scenarios designed to demonstrate different aspects of the prescription and culture data processing pipeline. Each scenario has its own configuration file that references data from the central data directory.
+This directory contains three test scenarios that demonstrate different configurations of the prescription and culture data processing pipeline. Each scenario has its own configuration file and associated synthetic input data.
 
-## Overview
+---
+
+## Folder Structure
 
 ```
 test_scenarios/
-├── minimal/              # Minimal scenario
-│   └── config.yaml      # Configuration with basic settings
-├── alternative/         # Alternative naming scenario
-│   └── config.yaml     # Configuration with different column names
-└── extended/           # Extended scenario
-    └── config.yaml     # Configuration with additional fields
+├── minimal/              # Basic input only
+│   └── config.yaml
+├── alternative/          # Hospital-style column names
+│   └── config.yaml
+├── extended/             # Full input with extra fields
+│   └── config.yaml
 
 data/
-├── raw/                # Input data files
-│   ├── prescriptions.csv
-│   ├── cultures.csv
-│   ├── microbiology.csv
-│   ├── encounters.csv
-│   ├── orders.csv
-│   └── admissions.csv
-└── processed/          # Output data files
-    ├── minimal/        # Minimal scenario outputs
-    ├── alternative/    # Alternative scenario outputs
-    └── extended/       # Extended scenario outputs
+├── raw/
+│   ├── minimal/
+│   │   ├── mmi_MedicatieVoorschrift.csv
+│   │   └── kweken.csv
+│   ├── alternative/
+│   │   ├── mmi_MedicatieVoorschrift.csv
+│   │   └── kweken.csv
+│   └── extended/
+│       ├── mmi_MedicatieVoorschrift.csv
+│       ├── OrderSpecificatievraagAntwoord.csv
+│       ├── mmi_OpnameDeeltraject.csv
+│       └── kweken.csv
+
+└── processed/
+    ├── minimal/output.json
+    ├── alternative/output.json
+    └── extended/output.json
 ```
+
+---
 
 ## Scenario Details
 
-### 1. Minimal Scenario
+### 🔹 1. Minimal
 
-Demonstrates the core functionality with minimal required data:
+**Purpose**: Test basic required fields and core processing logic.
 
-#### Data Sources:
-- **Prescriptions** (from data/raw/prescriptions.csv):
-  - Basic fields: patient number, visit ID, dates, drug info
-  - Simple column names in English
-- **Cultures** (from data/raw/cultures.csv):
-  - Basic fields: patient number, collection time, specimen type, result
-  - Simple matching based on time windows
+- **Enabled sources**: prescriptions, cultures
+- **Missing**: admissions, order specifications
+- **Columns**: minimal; clean English labels
+- **Time windows**: 48h before, 24h after
 
-#### Features:
-- No admission data (null values in output)
-- Basic time window configuration (48h before, 24h after)
-- Simple treatment grouping
+### 🔹 2. Alternative
 
-#### Example Data:
-```csv
-# data/raw/prescriptions.csv
-patient_number,visit_id,start_date,end_date,drug_name,route
-P001,V101,2024-01-01 08:00:00,2024-01-07 08:00:00,Amoxicillin,oral
-```
+**Purpose**: Test different raw column names and hospital-style labels.
 
-### 2. Alternative Scenario
+- **Enabled sources**: prescriptions, cultures
+- **Missing**: admissions, order specifications
+- **Columns**: different naming conventions (e.g., `mrn`, `encounter_id`)
+- **Same logic**, different schema
 
-Demonstrates flexibility with different naming conventions:
+### 🔹 3. Extended
 
-#### Data Sources:
-- **Prescriptions** (from data/raw/prescriptions.csv):
-  - Hospital-style column names (mrn, encounter_id, etc.)
-  - Additional medication details
-- **Cultures** (from data/raw/microbiology.csv):
-  - Lab-style column names
-  - Extended specimen information
-- **Admissions** (from data/raw/encounters.csv):
-  - Hospital encounter data
-- **Orders** (from data/raw/orders.csv):
-  - Order specifications and indications
+**Purpose**: Test the full capabilities of the pipeline.
 
-#### Features:
-- Full admission information
-- Standard time windows
-- Complete data linkage
+- **Enabled sources**: prescriptions, cultures, admissions, order specifications
+- **Columns**: all possible fields (e.g., subspecialty, dosage, ICU status)
+- **Time windows**: custom per treatment type (default, intra-abdominal, emergency, ICU)
+- **Includes multiple order questions per prescription**
 
-#### Example Data:
-```csv
-# data/raw/prescriptions.csv
-mrn,encounter_id,medication_start,medication_stop,generic_name,admin_route
-MRN001,ENC001,2024-02-01 10:00:00,2024-02-07 10:00:00,Piperacillin-Tazobactam,intravenous
-```
-
-### 3. Extended Scenario
-
-Demonstrates full capabilities with additional fields:
-
-#### Data Sources:
-- **Prescriptions** (from data/raw/prescriptions.csv):
-  - All standard fields
-  - Additional fields:
-    - Subspecialty
-    - Department
-    - Dosage information
-    - Frequency
-    - Order status
-- **Cultures** (from data/raw/cultures.csv):
-  - Extended information:
-    - Material codes
-    - Detailed descriptions
-    - Culture purpose
-    - Department
-    - Location
-- **Admissions** (from data/raw/admissions.csv):
-  - Additional fields:
-    - Emergency status
-    - ICU status
-    - Specialty details
-    - Duration calculations
-- **Orders** (from data/raw/orders.csv):
-  - Detailed specifications
-  - Multiple questions per order
-  - Location information
-  - Order status flags
-
-#### Features:
-- Multiple time window configurations
-- Complex data relationships
-- Additional metadata in output
-- Dutch column names (matching original system)
-
-#### Example Data:
-```csv
-# data/raw/prescriptions.csv
-Pseudo_id,PatientContactId,StartDatumTijd,StopDatumTijd,MedicatieStofnaam,ToedieningsRoute
-PSEUDO_1,CONTACT_1234,2024-01-01 08:00:00,2024-01-07 08:00:00,AMOXICILLINE,oraal
-```
+---
 
 ## Running the Tests
 
-1. Generate test data:
-   ```bash
-   python generate_test_data.py
-   ```
+Generate synthetic data (overwrites all scenarios):
 
-2. Run individual scenarios:
-   ```bash
-   python ../main.py --config minimal/config.yaml
-   python ../main.py --config alternative/config.yaml
-   python ../main.py --config extended/config.yaml
-   ```
+```bash
+python data/generate_test_data.py
+```
 
-## Data Generation
+Run a specific test scenario:
 
-The `generate_test_data.py` script creates realistic test data in the data/raw directory:
-- Uses consistent patient and visit IDs across files
-- Generates temporally coherent dates
-- Creates meaningful relationships between prescriptions and cultures
-- Adds realistic medical terminology and values
+```bash
+python src/main.py --config test_scenarios/minimal/config.yaml
+python src/main.py --config test_scenarios/alternative/config.yaml
+python src/main.py --config test_scenarios/extended/config.yaml
+```
 
-## Validation
+---
 
-Each scenario tests different aspects:
-1. **Minimal**: Core functionality and required fields
-2. **Alternative**: Column name mapping and data source flexibility
-3. **Extended**: Additional fields and complex relationships
+## Validation Summary
 
-## Expected Outputs
+| Scenario    | Prescriptions | Cultures | Admissions | Orders | Custom Columns | Time Windows |
+|-------------|---------------|----------|------------|--------|----------------|--------------|
+| Minimal     | ✅             | ✅        | ❌          | ❌      | ❌              | Basic (48/24) |
+| Alternative | ✅             | ✅        | ❌          | ❌      | ✅              | Default       |
+| Extended    | ✅             | ✅        | ✅          | ✅      | ✅              | Multiple      |
 
-Each scenario generates a JSON file in its respective output directory:
-- Minimal: data/processed/minimal/output.json
-- Alternative: data/processed/alternative/output.json
-- Extended: data/processed/extended/output.json
+---
 
-## Using as Examples
+## Usage
 
-These scenarios serve as templates for:
-1. Setting up new data sources
-2. Mapping different column names
-3. Adding custom fields
-4. Configuring time windows
-5. Testing data relationships 
+These scenarios are useful for:
+
+- Testing configuration flexibility
+- Validating internal mapping logic
+- Demonstrating edge cases (missing files, alternative schema)
+- Onboarding new users
+
+Each scenario includes a corresponding `config.yaml` to match its input data.
+
+---
